@@ -17,9 +17,13 @@ export function ProductCard({
   return (
     <article className="product-card" data-testid={`card-product-${product.id}`}>
       <div className="product-art">
-        <span className="product-icon" role="img" aria-label={product.name}>
-          {productEmoji(product)}
-        </span>
+        {product.image ? (
+          <img className="product-photo" src={product.image} alt={product.name} loading="lazy" />
+        ) : (
+          <span className="product-icon" role="img" aria-label={product.name}>
+            {productEmoji(product)}
+          </span>
+        )}
         <span className="product-category">{product.category}</span>
       </div>
       <div className="product-copy">

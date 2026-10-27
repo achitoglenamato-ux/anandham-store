@@ -58,7 +58,7 @@ export function BasketDrawer({
               {lines.map(({ product, quantity }) => (
                 <div className="basket-line" key={product.id}>
                   <span className="basket-product-icon" aria-hidden="true">
-                    {productEmoji(product)}
+                    {product.image ? <img src={product.image} alt="" /> : productEmoji(product)}
                   </span>
                   <div className="basket-line-copy">
                     <strong>{product.name}</strong>
