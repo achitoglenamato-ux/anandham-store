@@ -8,9 +8,11 @@ import { Brand } from '@/components/Brand';
 import { useAuth, useLogout } from '@/lib/auth';
 import { errorMessage, isPermissionProblem, orderNumber, rupees } from '@/lib/format';
 import {
-  addProduct, deleteProduct, loadStartingCatalogue, summarise, updateOrderStatus, updateProductPrice,
-  useAdminOrders, useProducts,
+  addProduct, deleteProduct, loadStartingCatalogue, summarise, updateOrderStatus, updateProductImage,
+  updateProductPrice, useAdminOrders, useProducts,
 } from '@/lib/store-data';
+import { imageFileToDataUrl } from '@/lib/image';
+import { productEmoji } from '@/lib/product-emoji';
 import type { AdminOrder, OrderStatus, Product } from '@/lib/types';
 
 const statusLabels: Record<OrderStatus, string> = {
@@ -232,6 +234,7 @@ function PriceRow({ product }: { product: Product }) {
   const [saved, setSaved] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   // Keep the input in sync with the saved price (after a save or a live change).
   useEffect(() => setValue(String(product.price)), [product.price]);
@@ -261,6 +264,30 @@ function PriceRow({ product }: { product: Product }) {
     }
   };
 
+  const changePhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    setPhotoBusy(true);
+    try {
+      await updateProductImage(product.id, await imageFileToDataUrl(file));
+    } catch (problem) {
+      console.error(problem);
+      setError(problem);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const removePhoto = async () => {
+    setError(null);
+    try {
+      await updateProductImage(product.id, null);
+    } catch (problem) {
+      console.error(problem);
+      setError(problem);
+    }
+  };
+
   const remove = async () => {
     if (!window.confirm(`Remove “${product.name}” from the catalogue? Orders already placed are not affected.`)) return;
     setError(null);
@@ -275,11 +302,37 @@ function PriceRow({ product }: { product: Product }) {
   return (
     <form className="price-row" onSubmit={submit} data-testid={`row-product-${product.id}`}>
       <div className="price-row-name">
-        <strong>{product.name}</strong>
-        <small>{product.unit}</small>
-        <button type="button" className="link-button danger" onClick={remove} data-testid={`button-remove-${product.id}`}>
-          Remove
-        </button>
+        <div className="price-thumb" aria-hidden="true">
+          {product.image ? <img src={product.image} alt="" /> : productEmoji(product)}
+        </div>
+        <div>
+          <strong>{product.name}</strong>
+          <small>{product.unit}</small>
+          <div className="price-row-links">
+            <label className="link-button" data-testid={`label-photo-${product.id}`}>
+              {photoBusy ? 'Saving photo…' : product.image ? 'Change photo' : 'Add photo'}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                disabled={photoBusy}
+                onChange={event => {
+                  void changePhoto(event.target.files?.[0]);
+                  event.target.value = '';
+                }}
+                data-testid={`input-photo-${product.id}`}
+              />
+            </label>
+            {product.image && (
+              <button type="button" className="link-button" onClick={removePhoto} data-testid={`button-remove-photo-${product.id}`}>
+                Remove photo
+              </button>
+            )}
+            <button type="button" className="link-button danger" onClick={remove} data-testid={`button-remove-${product.id}`}>
+              Remove product
+            </button>
+          </div>
+        </div>
       </div>
       <div className="price-row-current" aria-label="Current price">
         <small>CURRENT</small>
@@ -336,6 +389,7 @@ function AddProductForm({ products }: { products: Product[] }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [added, setAdded] = useState('');
+  const [photo, setPhoto] = useState<File | null>(null);
   const categories = useMemo(() => Array.from(new Set(products.map(product => product.category))), [products]);
   const set = (key: keyof typeof fields) => (event: { target: { value: string } }) => {
     setFields(current => ({ ...current, [key]: event.target.value }));
@@ -347,9 +401,11 @@ function AddProductForm({ products }: { products: Product[] }) {
     setPending(true);
     setError(null);
     try {
-      await addProduct({ ...fields, price: Number(fields.price) }, products);
+      const image = photo ? await imageFileToDataUrl(photo) : undefined;
+      await addProduct({ ...fields, price: Number(fields.price), image }, products);
       setAdded(fields.name.trim());
       setFields({ name: '', category: fields.category, unit: '', price: '' });
+      setPhoto(null);
     } catch (problem) {
       console.error(problem);
       setError(problem);
@@ -382,6 +438,10 @@ function AddProductForm({ products }: { products: Product[] }) {
         <label>
           Price (₹)
           <input type="number" inputMode="decimal" min={0} max={1000000} step="0.01" value={fields.price} onChange={set('price')} required data-testid="input-new-price" />
+        </label>
+        <label>
+          Photo (optional)
+          <input type="file" accept="image/*" onChange={event => setPhoto(event.target.files?.[0] ?? null)} data-testid="input-new-photo" />
         </label>
         <button className="button-primary price-save" type="submit" disabled={pending} data-testid="button-add-product">
           <Plus size={14} /> {pending ? 'Adding…' : 'Add'}
