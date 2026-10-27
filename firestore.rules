@@ -1,0 +1,90 @@
+rules_version = '2';
+
+// Anandham Store: Firestore security rules.
+// Publish these in Firebase console → Firestore Database → Rules → paste → Publish.
+//
+// This is a website with no server, so these rules are the ONLY thing protecting your data.
+//   products : anyone can read; only the owner can add / change / remove
+//   users    : each customer can read and write only their own profile
+//   orders   : a signed-in customer can place an order (as themselves); only the owner can read all orders or change status
+//   admins   : who the owner is. Nobody can edit this from the website: add the owner's document in the Firebase console.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isText(value, minLength, maxLength) {
+      return value is string && value.size() >= minLength && value.size() <= maxLength;
+    }
+
+    function ownEmail(email) {
+      return email is string && email.lower() == request.auth.token.email.lower();
+    }
+
+    function validProfile(data) {
+      return data.keys().hasOnly(['name', 'phone', 'address', 'email'])
+        && data.keys().hasAll(['name', 'phone', 'address', 'email'])
+        && isText(data.name, 2, 120)
+        && isText(data.phone, 10, 20)
+        && isText(data.address, 8, 500)
+        && ownEmail(data.email);
+    }
+
+    function validProduct(data) {
+      return data.keys().hasOnly(['name', 'category', 'unit', 'price', 'order'])
+        && data.keys().hasAll(['name', 'category', 'unit', 'price', 'order'])
+        && isText(data.name, 1, 120)
+        && isText(data.category, 1, 60)
+        && isText(data.unit, 1, 60)
+        && data.price is number && data.price >= 0 && data.price <= 1000000
+        && data.order is number;
+    }
+
+    function validNewOrder(data) {
+      return data.keys().hasOnly(['uid', 'customerName', 'customerPhone', 'customerEmail', 'customerAddress', 'items', 'grandTotal', 'status', 'createdAt'])
+        && data.keys().hasAll(['uid', 'customerName', 'customerPhone', 'customerEmail', 'customerAddress', 'items', 'grandTotal', 'status', 'createdAt'])
+        && data.uid == request.auth.uid
+        && ownEmail(data.customerEmail)
+        && isText(data.customerName, 2, 120)
+        && isText(data.customerPhone, 10, 20)
+        && isText(data.customerAddress, 8, 500)
+        && data.items is list && data.items.size() >= 1 && data.items.size() <= 50
+        && data.grandTotal is number && data.grandTotal >= 0 && data.grandTotal <= 10000000
+        && data.status == 'new'
+        && data.createdAt == request.time;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && validProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isSignedIn() && request.auth.uid == userId && validProfile(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /orders/{orderId} {
+      allow create: if isSignedIn() && validNewOrder(request.resource.data);
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['new', 'called', 'completed', 'cancelled'];
+      allow delete: if false;
+    }
+
+    match /admins/{userId} {
+      // A person may only check whether THEY are the owner. Nobody can create or edit these from the website.
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list, write: if false;
+    }
+  }
+}
