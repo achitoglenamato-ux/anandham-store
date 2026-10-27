@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc,
+  addDoc, collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc,
   writeBatch, type DocumentData, type Timestamp,
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -49,10 +49,14 @@ function useLive<T>(subscribe: (onData: (value: T) => void, onError: (error: unk
 /* ------------------------------------------------------------------ products */
 
 function toProduct(id: string, raw: DocumentData): Product | null {
-  const { name, category, unit, price, order } = raw;
+  const { name, category, unit, price, order, image } = raw;
   if (typeof name !== 'string' || typeof category !== 'string' || typeof unit !== 'string') return null;
   if (typeof price !== 'number' || !Number.isFinite(price)) return null;
-  return { id, name, category, unit, price, order: typeof order === 'number' ? order : 0 };
+  return {
+    id, name, category, unit, price,
+    order: typeof order === 'number' ? order : 0,
+    image: typeof image === 'string' && image.startsWith('data:image/') ? image : undefined,
+  };
 }
 
 /** All products, in display order, updating live whenever the owner changes a price. */
@@ -80,7 +84,7 @@ export async function updateProductPrice(id: string, price: number): Promise<voi
 }
 
 export async function addProduct(
-  fields: { name: string; category: string; unit: string; price: number },
+  fields: { name: string; category: string; unit: string; price: number; image?: string },
   existing: Product[],
 ): Promise<void> {
   const name = fields.name.trim();
@@ -99,7 +103,15 @@ export async function addProduct(
   const order = sameCategory.length
     ? Math.max(...sameCategory.map(item => item.order)) + 1
     : Math.max(0, ...existing.map(item => item.order)) + 100;
-  await setDoc(doc(db, 'products', id), { name, category, unit, price: fromPaise(toPaise(fields.price)), order });
+  await setDoc(doc(db, 'products', id), {
+    name, category, unit, price: fromPaise(toPaise(fields.price)), order,
+    ...(fields.image ? { image: fields.image } : {}),
+  });
+}
+
+/** Saves a product picture, or removes it when `image` is null (the emoji is shown again). */
+export async function updateProductImage(id: string, image: string | null): Promise<void> {
+  await updateDoc(doc(db, 'products', id), { image: image ?? deleteField() });
 }
 
 export async function deleteProduct(id: string): Promise<void> {

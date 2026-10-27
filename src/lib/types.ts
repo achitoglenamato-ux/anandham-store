@@ -19,6 +19,8 @@ export type Product = {
   unit: string;
   price: number;
   order: number;
+  /** Small JPG picture saved with the product (a data URL). Optional. */
+  image?: string;
 };
 
 export type OrderItem = {
