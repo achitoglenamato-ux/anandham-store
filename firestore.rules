@@ -37,8 +37,9 @@ service cloud.firestore {
     }
 
     function validProduct(data) {
-      return data.keys().hasOnly(['name', 'category', 'unit', 'price', 'order'])
+      return data.keys().hasOnly(['name', 'category', 'unit', 'price', 'order', 'image'])
         && data.keys().hasAll(['name', 'category', 'unit', 'price', 'order'])
+        && (!('image' in data) || (data.image is string && data.image.size() <= 150000))
         && isText(data.name, 1, 120)
         && isText(data.category, 1, 60)
         && isText(data.unit, 1, 60)
